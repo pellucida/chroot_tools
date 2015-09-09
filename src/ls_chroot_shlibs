@@ -112,8 +112,19 @@ process_shlib() {
 	if [ $? -ne 0 ]; then
 		realso=$libtarget
 	fi
-	printf "$XX cp -p $realso $JAIL$LIB \n"
-	printf "$XX ldconfig -n -N -v -l -r $JAIL $realso \n\n"
+
+# Some of the libraries are in /lib{,64} others /usr/lib{,64}
+# We could copy them all into /lib{,64} but to maintain the
+# correspondence with the host system we won't.
+	
+	libdest=$LIB
+	libso=`basename $realso`
+	libbase=`dirname $realso`
+	if [ "$libbase" = "/usr$LIB" ]; then
+		libdest="$libbase"
+	fi
+	printf "$XX cp -p $realso $JAIL${libdest}/$libso \n"
+	printf "$XX ldconfig -n -N -v -l -r $JAIL ${libdest}/$libso \n\n"
 }
 list_nss_so() {
 	libdir="$1"

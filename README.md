@@ -1,8 +1,9 @@
 
 ### Linux - enumerate the shared objects required by an ELF binary
-When setting up a chroot jail knowing what shared object to copy
-into the jail is a problem. This script query the binary and print
-a list of commented out command which would copy the required files
+
+When setting up a chroot jail knowing which shared object to copy
+into the jail is a problem. This script queries the binary and prints
+a list of commands which would copy the required files
 and establish the correct logical links within the jail.
 
 ### SYNOPSIS
@@ -14,11 +15,13 @@ and establish the correct logical links within the jail.
     ls_chroot_shlibs -r /jail /usr/bin/scp
 
 Output is a list commands (cp and ldconfig) to copy the underlying
-shared libraries and runtime loaders to /Jail/lib /Jail/lib64.
+shared libraries and runtime loaders to /Jail/lib /Jail/lib64 and
+lib directories under /usr.
+If libnsl.so.1 is detected in the dependencies the corresponding
+libnss_files.so.2 is also copied.
+Changes NSS_SOURCES in the script to add nis, nisplus etc.
+
 The commands are prefixed with a shell comment (#X by default.)
-
-
-
 
     #! /bin/sh
     ## We work out what shared objects the binary needs
@@ -37,7 +40,7 @@ The commands are prefixed with a shell comment (#X by default.)
     #X cp -p /lib64/ld-2.12.so /jail/lib64 
     #X ldconfig -n -N -v -l -r /jail /lib64/ld-2.12.so 
     
-    #X cp -p /usr/lib64/libcrypto.so.1.0.1e /jail/lib64 
+    #X cp -p /usr/lib64/libcrypto.so.1.0.1e /jail/usr/lib64 
     #X ldconfig -n -N -v -l -r /jail /usr/lib64/libcrypto.so.1.0.1e 
     
     #X cp -p /lib64/librt-2.12.so /jail/lib64 
@@ -54,7 +57,11 @@ The commands are prefixed with a shell comment (#X by default.)
     
     #X cp -p /lib64/libnsl-2.12.so /jail/lib64 
     #X ldconfig -n -N -v -l -r /jail /lib64/libnsl-2.12.so 
-    
+
+    ## libnsl detected adding libnss_* files
+    #X cp -p /lib64/libnss_files-2.12.so /jail/lib64/libnss_files-2.12.so 
+    #X ldconfig -n -N -v -l -r /jail /lib64/libnss_files-2.12.so  
+
     #X cp -p /lib64/libcrypt-2.12.so /jail/lib64 
     #X ldconfig -n -N -v -l -r /jail /lib64/libcrypt-2.12.so 
     
