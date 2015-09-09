@@ -1,9 +1,15 @@
 #! /bin/sh
 #
 # @(#) ls_chroot_shlibs - enumerate libraries executable requires in chroot
-#		
-# Example: ls_chroot_shlibs -r /jail /usr/bin/scp
-
+#
+#  License: Creative Commons CC0 
+#      http://creativecommons.org/publicdomain/zero/1.0/legalcode		
+#
+#  Author: James Sainsbury
+#      toves@sdf.lonestar.org
+#
+#  Example: ls_chroot_shlibs -r /jail /usr/bin/scp
+# 
 PATH="/sbin:/bin:/usr/sbin:/usr/bin"
 export PATH
 PROGNAME="`basename $0`"
