@@ -10,6 +10,9 @@ PROGNAME="`basename $0`"
 
 JAIL="/chroot"
 XX="#X"
+#NSS_SOURCES="files nis nisplus"
+NSS_SOURCES="files"
+
 Usage() {
 	printf "Usage: $PROGNAME [-r /chroot] elf_binary\n" 
 	exit 0
@@ -103,6 +106,23 @@ printf "## The rest of us might redirect the output into a file\n"
 printf "## to peruse the contents and edit as required before executing\n"
 printf "\n"
 
+process_shlib() {
+	libtarget="$1"
+	realso=`readlink -f $libtarget`
+	if [ $? -ne 0 ]; then
+		realso=$libtarget
+	fi
+	printf "$XX cp -p $realso $JAIL$LIB \n"
+	printf "$XX ldconfig -n -N -v -l -r $JAIL $realso \n\n"
+}
+list_nss_so() {
+	libdir="$1"
+	shift 1
+	for source in $@ ; do
+		find $libdir -name "libnss_${source}.so.?"
+	done
+}
+		
 # The first printf adds the runtime loader to the list like a shared library
 ( printf "\t`basename $RTLD` => $RTLD \n";	\
 	( env $RTLD_FLAGS $RTLD  "$target" 	\
@@ -113,11 +133,19 @@ do
 	if [ "$libtarget" = "not" -a "$addr" = "found" ]; then
 		Errmsg "$libname not found" 
 	else
-		realso=`readlink -f $libtarget`
-		if [ $? -ne 0 ]; then
-			realso=$libtarget
+		process_shlib $libtarget
+
+# If libnsl.so.1 appears we probably need at least libnss_files.so.2 
+# depending on the contents of nsswitch.conf
+
+		NSLPAT=$LIB/libnsl
+		patlen=`expr length $NSLPAT`
+
+		if [ `expr match $libtarget $NSLPAT` -ge $patlen  ]; then
+			printf "## libnsl detected adding libnss_* files\n"
+			for sobj in `list_nss_so $LIB $NSS_SOURCES` ; do
+				process_shlib $sobj
+			done
 		fi
-		printf "$XX cp -p $realso $JAIL$LIB \n"
-		printf "$XX ldconfig -n -N -v -l -r $JAIL $realso \n\n"
 	fi
 done
