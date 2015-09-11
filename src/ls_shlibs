@@ -1,0 +1,204 @@
+#! /bin/sh
+#
+# @(#) ls_shlibs - enumerate libraries of executable 
+#
+#  License: Creative Commons CC0 
+#      http://creativecommons.org/publicdomain/zero/1.0/legalcode		
+#
+#  Author: James Sainsbury
+#      toves@sdf.lonestar.org
+#
+#  Example: ls_shlibs -D /jail/lib64 -d /usr/libexec/openssh/sftp-server
+# 
+PATH="/sbin:/bin:/usr/sbin:/usr/bin"
+export PATH
+
+PROGNAME="`basename $0`"
+
+UNAME="/bin/uname"
+ARCH=""
+KERN=""
+OS=""
+
+READLINK="/bin/readlink"
+READLINK_FLAG="-f"
+#
+# Add Kernel/Os/Arch as required
+#
+RTLD_X86_64_2="/lib64/ld-linux-x86-64.so.2"
+RTLD_I386_1="/lib/ld-linux.so.1"
+RTLD_I386_2="/lib/ld-linux.so.2"
+
+VDSO_X86_64_2="linux-vdso.so.1"
+VDSO_I386="linux-gate.so.1"
+VDSO_PATTERN="linux-(vdso|gate).so.1"
+RTLD_LIST=""
+
+RTLD_FLAGS="--list"
+# -----
+
+
+# Program flags
+P_dereference=0
+P_ld_library_path=""
+
+
+
+Usage() {
+	printf "Usage: $PROGNAME [-D libdir -D...] [-d] elf_program...\n"
+	printf "        -D libdir   # add libdir to loader search path (repeat)\n"
+	printf "        -d          # dereference links\n"
+
+	printf "\nExample:\n"
+	printf "    Check if all the shared objects needed by scp are in /jail/lib\n"
+
+	printf "        $PROGNAME -D /jail/lib -d /usr/bin/scp\n"
+	exit 0
+}
+Message() {
+	printf "$@\n" 1>&2
+}
+Error() {
+	printf "ERROR: $PROGNAME -- $@\n" 1>&2
+}
+Warn() {
+	printf "Warning: $PROGNAME -- $@\n" 1>&2
+}
+Fatal() {
+	printf "FATAL: $PROGNAME -- $@\n" 1>&2
+	exit 1
+}
+
+while getopts "D:d" opt
+do
+	case $opt in
+	D)
+		if [ ! -d "$OPTARG" ]; then
+			Warn "Directory '$OPTARG' doesn't exist"
+		fi
+		if [ -z "$P_ld_library_path" ]; then
+			P_ld_library_path="$OPTARG"
+		else
+			P_ld_library_path="${P_ld_library_path}:$OPTARG"
+		fi
+	;;
+	d)
+		P_dereference=1
+	;;
+	*)
+		Usage
+	;;
+	esac
+done
+shift `expr $OPTIND - 1`
+
+if [ ! -z "$P_ld_library_path" ]; then
+	RTLD_FLAGS="$RTLD_FLAGS --library-path $P_ld_library_path"
+fi
+#----	
+identify_system() {
+	ARCH=`$UNAME -m`
+	KERN=`$UNAME -s`
+	OS=`$UNAME -o`
+}
+# Print a list of possible runtime loaders for this system
+runtime_loaders() {
+	if [ "$KERN" != "Linux" ]; then
+		Fatal "Add Kernel '$Kern'"
+	fi
+	case $ARCH in
+	x86_64)
+		candidates="${RTLD_X86_64_2} ${RTLD_I386_1} ${RTLD_I386_2}"
+	;;
+	i[3-6]86)
+		candidates="${RTLD_I386_1} ${RTLD_I386_2}"
+	;;
+	*)
+		Fatal "Add arch '$ARCH' for kernel '$KERN'"
+	;;
+	esac		
+	for rtld in $candidates ; do
+		if [ -x "$rtld" ] ; then
+			RTLD_LIST="$RTLD_LIST $rtld"
+		fi
+	done
+}
+
+find_rtld_for() {
+	binary="$1"
+	for rtld in $RTLD_LIST ; do
+		# 32 bit loader prints 6 for i686 etc
+		$rtld --verify "$binary" >/dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			printf "$rtld"
+			return 0
+		fi
+	done
+	return 1
+}
+
+identify_system
+
+runtime_loaders
+if [ -z "$RTLD_LIST" ]; then
+	Fatal "Can't find any runtime loaders"
+fi
+
+
+list_shlibs_for() {
+	binary="$1"
+	dir=`dirname $binary`
+	if [ "$dir" = "." ]; then
+		binary="$dir/$binary"
+	fi
+	rtld=`find_rtld_for "$binary"`
+	if [ -x "$rtld" ]; then
+		printf "%s\n" "$rtld"
+		$rtld $RTLD_FLAGS "$binary" 			\
+		| grep -E -v -e "$VDSO_PATTERN" -e "$rtld" 	\
+		| sed -e 's/^.* => //' -e 's/ (.*$//'
+		return 0
+	else
+		return 1
+	fi
+}
+
+dereference() {
+	for soname in $@ ; do
+	if [ -h "$soname" ]; then
+		$READLINK $READLINK_FLAG "$soname"
+	else
+		printf "$soname\n"
+	fi
+	done
+}
+
+process_all_binaries() {
+	
+	for binary in $@
+	do
+		if [ ! -f "$binary" ]; then
+			Warn "File '$binary' doesn't exist"
+		elif [ ! -r "$binary" ]; then
+			Warn "File '$binary' isn't readable"
+		else
+			if [ ! -x "$binary" ]; then
+				Warn "File '$binary' isn't executable"
+			fi
+			needed=`list_shlibs_for "$binary"`
+			if [ $? -ne 0 ]; then
+				Warn "File '$binary' not ELF or not dynamically linked"
+			else
+				if [ "$P_dereference" -eq 1 ]; then
+					dereference $needed
+				else 
+					for lib in $needed ; do
+						printf "$lib\n"
+					done
+				fi
+			fi
+		fi
+	done
+}
+
+process_all_binaries $@ | sort -u 

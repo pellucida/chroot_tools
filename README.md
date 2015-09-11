@@ -1,87 +1,72 @@
 
-### Linux - enumerate the shared objects required by an ELF binary
+### A few tools to assist in setting up a chroot jail (Linux)
 
 When setting up a chroot jail knowing which shared object to copy
-into the jail is a problem. This script queries the binary and prints
-a list of commands which would copy the required files
-and establish the correct logical links within the jail.
+into the jail can be a problem.
+The script `ls_shlibs` queries at list of executables and prints
+a list of the required share library files and runtime linkers.
 
 ### SYNOPSIS
 
-    ls_chroot_shlibs -r /Jail elf_binary
+    ls_shlibs [-D libdir1 -D libdir2...] [-d] program1 program2...
 
 ### EXAMPLES
 
-    ls_chroot_shlibs -r /jail /usr/bin/scp
+    ls_shlibs /usr/bin/scp /usr/libexec/openssh/sftp-server
 
-Output is a list commands (cp and ldconfig) to copy the underlying
-shared libraries and runtime loaders to /Jail/lib /Jail/lib64 and
-lib directories under /usr.
-If libnsl.so.1 is detected in the dependencies the corresponding
-libnss_files.so.2 is also copied.
-Changes NSS_SOURCES in the script to add nis, nisplus etc.
+This lists the logical names of the needed libraries
 
-The commands are prefixed with a shell comment (#X by default.)
+    libc.so.6
 
-    #! /bin/sh
-    ## We work out what shared objects the binary needs
-    ## (the actual files not symlinks) and copy those into
-    ## the chroot (/jail) library directory (/lib64)
-    ## The logical links are reestablished with ldconfig(8)
-    ## 
-    ## The actual commands are prefixed with a comment #X
-    ## For the brave or foolhardy:
-    ## 
-    ## ls_chroot_shlibs -r /jail /usr/bin/scp | sed -e 's/^#X// | sh -s
-    ## 
-    ## The rest of us might redirect the output into a file
-    ## to peruse the contents and edit as required before executing
-    
-    #X cp -p /lib64/ld-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/ld-2.12.so 
-    
-    #X cp -p /usr/lib64/libcrypto.so.1.0.1e /jail/usr/lib64 
-    #X ldconfig -n -N -v -l -r /jail /usr/lib64/libcrypto.so.1.0.1e 
-    
-    #X cp -p /lib64/librt-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/librt-2.12.so 
-    
-    #X cp -p /lib64/libdl-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libdl-2.12.so 
-    
-    #X cp -p /lib64/libutil-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libutil-2.12.so 
-    
-    #X cp -p /lib64/libz.so.1.2.3 /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libz.so.1.2.3 
-    
-    #X cp -p /lib64/libnsl-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libnsl-2.12.so 
+rather than the actual library
 
-    ## libnsl detected adding libnss_* files
-    #X cp -p /lib64/libnss_files-2.12.so /jail/lib64/libnss_files-2.12.so 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libnss_files-2.12.so  
+    libc-2.12.so
 
-    #X cp -p /lib64/libcrypt-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libcrypt-2.12.so 
-    
-    #X cp -p /lib64/libresolv-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libresolv-2.12.so 
-    
-    #X cp -p /lib64/libc-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libc-2.12.so 
-    
-    #X cp -p /lib64/libpthread-2.12.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libpthread-2.12.so 
-    
-    #X cp -p /lib64/libfreebl3.so /jail/lib64 
-    #X ldconfig -n -N -v -l -r /jail /lib64/libfreebl3.so 
+The `-d` flag dereferences these links.  The actual files are usually
+the ones to copy into the chroot jail. In order to set up the correct
+links use `ldconfig(8)` to reestablish the links.
+eg
+	ldconfig -r $JAIL -n -N -v -l /lib64/libc-2.12.so
 
-### PREREQUISITES
-ls_chroot_shlibs is a shell script (sh,bash) that uses the same
-techniques as ldd(1) to enumerate the required shared libraries.
-Uses readlink(1) and ldconfig(8).
+### EXAMPLE
+```
+ls_shlibs /bin/bash
 
+/lib64/ld-linux-x86-64.so.2
+/lib64/libc.so.6
+/lib64/libdl.so.2
+/lib64/libtinfo.so.5
+
+ls_shlibs -d /bin/bash
+
+/lib64/ld-2.12.so
+/lib64/libc-2.12.so
+/lib64/libdl-2.12.so
+/lib64/libtinfo.so.5.7
+
+cp -p /lib64/ld-2.12.so /lib64/libc-2.12.so \
+      /lib64/libdl-2.12.so /lib64/libtinfo.so.5.7 \
+      /tmp/jail/lib64
+
+
+ldconfig -r /tmp/jail -n -N -v -l \
+      /lib64/ld-2.12.so /lib64/libc-2.12.so \
+      /lib64/libdl-2.12.so /lib64/libtinfo.so.5.7
+	
+ld-linux-x86-64.so.2 -> ld-2.12.so (changed)
+libc.so.6 -> libc-2.12.so (changed)
+libdl.so.2 -> libdl-2.12.so (changed)
+libtinfo.so.5 -> libtinfo.so.5.7 (changed)
+
+ls_shlibs -D /tmp/jail/lib64 /bin/bash
+
+/lib64/ld-linux-x86-64.so.2
+/tmp/jail/lib64/libc.so.6
+/tmp/jail/lib64/libdl.so.2
+/tmp/jail/lib64/libtinfo.so.5
+
+```
+	
 ### SEE ALSO
 
 ### LICENSE
