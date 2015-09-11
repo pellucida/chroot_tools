@@ -1,0 +1,130 @@
+#! /bin/sh
+#
+# @(#) setup_chroot_libraries  - ibraries executable requires in chroot
+#
+#  License: Creative Commons CC0 
+#      http://creativecommons.org/publicdomain/zero/1.0/legalcode		
+#
+#  Author: James Sainsbury
+#      toves@sdf.lonestar.org
+#
+#  Example: 
+# 	setup_chroot_libraries -x -F -r /jail /usr/libexec/openssh/sftp-server
+# 
+PATH="/sbin:/bin:/usr/sbin:/usr/bin"
+export PATH
+PROGNAME="`basename $0`"
+
+P_jail=""
+P_list=0
+P_force=0
+P_dryrun=0
+P_ls_shlibs=""
+
+#NSS_SOURCES="files nis nisplus"
+NSS_SOURCES="files"
+
+LS_SHLIBS="./ls_shlibs"
+LS_SHLIBS_FLAGS="-d"
+
+
+LDCONFIG="/sbin/ldconfig"
+LDCONFIG_FLAGS="-n -N -v -l" 
+
+Usage() {
+	printf "Usage: $PROGNAME -r /jail [-n|-x] [-F] programs...\n" 
+	printf "             -r /jail    # use /jail as chroot jail (required)\n" 
+	printf "             -n          # dryrun\n" 
+	printf "             -x          # list actions\n" 
+	printf "             -F          # Force creation of directories\n" 
+	printf "\n"
+	exit 0
+}
+Fatal() {
+	printf "FATAL: $PROGNAME -- $@ \n" 1>&2
+	exit 1
+}
+list_and_execute() {
+	printf "$*\n"
+	$@
+}
+
+
+while getopts "xr:FnS:" opt ; do
+	case $opt in
+	r)
+		P_jail=$OPTARG
+	;;
+	x)
+		P_list=1
+	;;
+	n)
+		P_dryrun=1
+	;;
+	F)
+		P_force=1
+	;;
+	S)
+		P_ls_shlibs=$OPTARG
+	;;
+	\?)
+		Usage
+	;;
+	esac
+done
+shift `expr $OPTIND - 1`
+
+if [ -z "$P_jail" ]; then
+	Usage
+elif [ ! -d "$P_jail" ]; then
+	Fatal "Chroot jail directory '$P_jail' doesn't exist"
+fi
+
+if [ "$P_dryrun" = 1 ]; then
+	D="echo"
+elif [ "$P_list" = 1 ]; then
+	D="list_and_execute"
+else
+	D=""
+fi
+
+if [ ! -z "$P_ls_shlibs" ] ;then
+	LS_SHLIBS="$P_ls_shlibs"
+fi
+
+if [ ! -x "$LS_SHLIBS" ]; then
+	Fatal "Can not find/execute $LS_SHLIBS.\n\tUse -S /path/to/ls_shlib to specify path."
+fi
+
+NEEDED=`$LS_SHLIBS $LS_SHLIB_FLAGS $@` 
+
+if [ ! -z "$NEEDED" ]; then
+	libnsl_list=""
+	for sobj in $NEEDED ; do
+		name=`basename $sobj`
+		dir=`dirname $sobj`
+		jaildir="$P_jail$dir"
+		if [ "$P_force" -eq 1 ]; then
+			if [ ! -d "$jaildir" ]; then
+				$D mkdir -p "$jaildir"
+			fi
+		elif [ ! -d "$P_jail$dir" ]; then
+			Fatal "Install directory '$P_jail$dir' doesn't exist"
+		fi
+		$D cp -p "$sobj" $P_jail$dir
+		if  [ `expr match "$name" libnsl` -eq 6 ]; then
+			libnsl_list="$libnsl_list $dir"
+		fi 
+	done
+	for dir in $libnsl_list ; do
+		for source in $NSS_SOURCES ; do
+			$D cp -p $dir/libnss_${source}*.so $P_jail$dir
+		done
+	done
+# Try and be quiet 
+	if [ -z "$D" ]; then
+		$LDCONFIG $LDCONFIG_FLAGS -r $P_jail $NEEDED >/dev/null
+	else
+		$D $LDCONFIG $LDCONFIG_FLAGS -r $P_jail $NEEDED
+	fi
+fi
