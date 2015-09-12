@@ -1,0 +1,168 @@
+#! /bin/sh
+#
+# @(#) ls_chroot_shlibs - enumerate libraries executable requires in chroot
+#
+#  License: Creative Commons CC0 
+#      http://creativecommons.org/publicdomain/zero/1.0/legalcode		
+#
+#  Author: James Sainsbury
+#      toves@sdf.lonestar.org
+#
+#  Example: ls_chroot_shlibs -r /jail /usr/bin/scp
+# 
+PATH="/sbin:/bin:/usr/sbin:/usr/bin"
+export PATH
+PROGNAME="`basename $0`"
+
+JAIL="/chroot"
+XX="#X"
+#NSS_SOURCES="files nis nisplus"
+NSS_SOURCES="files"
+
+Usage() {
+	printf "Usage: $PROGNAME [-r /chroot] elf_binary\n" 
+	exit 0
+}
+Errmsg() {
+	printf "Message: $PROGNAME - $@ \n" 1>&2
+}
+Error() {
+	printf "ERROR: $PROGNAME - $@ \n" 1>&2
+	exit 1
+}
+
+while getopts "r:" opt ; do
+	case $opt in
+	r)
+		JAIL=$OPTARG
+	;;
+	\?)
+		Usage
+	;;
+	esac
+done
+
+shift $((OPTIND-1))
+if [ $# -ne 1 ]; then
+	Usage
+else
+	target="$1"
+	if [ ! -e "$target" ]; then
+		Error "$target doesn't exist"
+	elif [ ! -x "$target" ]; then
+		Error "$target isn't executable"
+	fi
+fi
+
+# 32/64 bit runtime loaders and virtual dynamic shared objects
+RTLD32=/lib/ld-linux.so.2
+VDSO32=linux-gate.so.1
+RTLD64=/lib64/ld-linux-x86-64.so.2
+VDSO64=linux-vdso.so.1
+
+CANDIDATES="$RTLD32 $RTLD64"
+
+# Which ones do we have?
+for rtld in $CANDIDATES ; do
+	if [ -x $rtld ]; then
+		RTLD_LIST="$RTLD_LIST $rtld"
+	fi
+done
+if [ "$RTLD_LIST" = "" ]; then
+	Error "no runtime loaders ($CANDIDATES)?"
+fi
+# What is our executable
+for rtld in $RTLD_LIST ; do
+	$rtld --verify $target
+	if [ $? -eq 0 ]; then
+		LIB="`dirname $rtld`" 
+		if [ "$LIB" = "/lib" ]; then
+			RTLD=$RTLD32
+			VDSO=$VDSO32
+		elif [ "$LIB" = "/lib64" ]; then
+			RTLD=$RTLD64
+			VDSO=$VDSO64
+		else
+			Error "neither 32 nor 64 bit?"
+		fi
+		break
+	fi
+done
+
+if [ "$RTLD" = "" ]; then
+	Error "$target is neither an ELF nor a dynamic executable"
+fi
+
+# ldd uses more flags but this will do for now.
+RTLD_FLAGS="LD_TRACE_LOADED_OBJECTS=1 LD_BIND_NOW=''"
+
+
+printf "#! /bin/sh\n"
+printf "## We work out what shared objects the binary needs\n"
+printf "## (the actual files not symlinks) and copy those into\n"
+printf "## the chroot ($JAIL) library directory ($LIB)\n"
+printf "## The logical links are reestablished with ldconfig(8)\n"
+printf "## \n"
+printf "## The actual commands are prefixed with a comment $XX\n"
+printf "## For the brave or foolhardy:\n"
+printf "## \n"
+printf "## $PROGNAME -r $JAIL $target | sed -e 's/^$XX// | sh -s\n"
+printf "## \n"
+printf "## The rest of us might redirect the output into a file\n"
+printf "## to peruse the contents and edit as required before executing\n"
+printf "\n"
+
+process_shlib() {
+	libtarget="$1"
+	realso=`readlink -f $libtarget`
+	if [ $? -ne 0 ]; then
+		realso=$libtarget
+	fi
+
+# Some of the libraries are in /lib{,64} others /usr/lib{,64}
+# We could copy them all into /lib{,64} but to maintain the
+# correspondence with the host system we won't.
+	
+	libdest=$LIB
+	libso=`basename $realso`
+	libbase=`dirname $realso`
+	if [ "$libbase" = "/usr$LIB" ]; then
+		libdest="$libbase"
+	fi
+	printf "$XX cp -p $realso $JAIL${libdest}/$libso \n"
+	printf "$XX ldconfig -n -N -v -l -r $JAIL ${libdest}/$libso \n\n"
+}
+list_nss_so() {
+	libdir="$1"
+	shift 1
+	for source in $@ ; do
+		find $libdir -name "libnss_${source}.so.?"
+	done
+}
+		
+# The first printf adds the runtime loader to the list like a shared library
+( printf "\t`basename $RTLD` => $RTLD \n";	\
+	( env $RTLD_FLAGS $RTLD  "$target" 	\
+	| grep -v -e "$VDSO" -e "$RTLD" ) )	\
+	| sed -e 's/ => / /'			\
+	| while read libname libtarget addr junk
+do
+	if [ "$libtarget" = "not" -a "$addr" = "found" ]; then
+		Errmsg "$libname not found" 
+	else
+		process_shlib $libtarget
+
+# If libnsl.so.1 appears we probably need at least libnss_files.so.2 
+# depending on the contents of nsswitch.conf
+
+		NSLPAT=$LIB/libnsl
+		patlen=`expr length $NSLPAT`
+
+		if [ `expr match $libtarget $NSLPAT` -ge $patlen  ]; then
+			printf "## libnsl detected adding libnss_* files\n"
+			for sobj in `list_nss_so $LIB $NSS_SOURCES` ; do
+				process_shlib $sobj
+			done
+		fi
+	fi
+done
