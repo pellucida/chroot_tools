@@ -34,7 +34,9 @@ VDSO_I386="linux-gate.so.1"
 VDSO_PATTERN="linux-(vdso|gate).so.1"
 RTLD_LIST=""
 
-RTLD_FLAGS="--list"
+#RTLD_FLAGS="--list"
+RTLD_FLAGS=""
+RTLD_ENV_FLAGS="LD_TRACE_LOADED_OBJECTS=1 LD_WARN='' LD_BIND_NOW=''"
 # -----
 
 
@@ -154,9 +156,16 @@ list_shlibs_for() {
 	rtld=`find_rtld_for "$binary"`
 	if [ -x "$rtld" ]; then
 		printf "%s\n" "$rtld"
-		$rtld $RTLD_FLAGS "$binary" 			\
+		env $RTLD_ENV_FLAGS $rtld $RTLD_FLAGS "$binary" 		\
 		| grep -E -v -e "$VDSO_PATTERN" -e "$rtld" 	\
-		| sed -e 's/^.* => //' -e 's/ (.*$//'
+		| sed -e 's/^[ 	]*//' -e 's/ => / /' -e 's/ (.*$//' \
+		| while read soname library junk ; do
+			if [ "$library $junk" = "not found" ]; then
+				Warn "'$soname' needed by '$binary' not found"
+			else
+				printf "$library\n"
+			fi
+		done
 		return 0
 	else
 		return 1
