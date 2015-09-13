@@ -96,7 +96,7 @@ if [ ! -x "$LS_SHLIBS" ]; then
 	Fatal "Can not find/execute $LS_SHLIBS.\n\tUse -S /path/to/ls_shlib to specify path."
 fi
 
-NEEDED=`$LS_SHLIBS $LS_SHLIB_FLAGS $@` 
+NEEDED=`$LS_SHLIBS $LS_SHLIBS_FLAGS $@` 
 
 if [ ! -z "$NEEDED" ]; then
 	libnsl_list=""
