@@ -3,8 +3,8 @@
 
 When setting up a chroot jail knowing which shared object to copy
 into the jail can be a problem.
-The script `ls_shlibs` queries at list of executables and prints
-a list of the required share library files and runtime linkers.
+The script `ls_shlibs` queries a list of executables and prints
+a list of the required shared library files and runtime linkers.
 
 ### SYNOPSIS
 
