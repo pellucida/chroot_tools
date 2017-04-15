@@ -70,9 +70,7 @@ ls_shlibs -D /tmp/jail/lib64 /bin/bash
 ### SEE ALSO
 
 ### LICENSE
-Creative Commons CC0
-[http://creativecommons.org/publicdomain/zero/1.0/legalcode]
-(http://creativecommons.org/publicdomain/zero/1.0/legalcode)
+Creative Commons CC0 (http://creativecommons.org/publicdomain/zero/1.0/legalcode)
 
 ### AUTHOR
 [mailto:toves@sdf.lonestar.org](James Sainsbury)
